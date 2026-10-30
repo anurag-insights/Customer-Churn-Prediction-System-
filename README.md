@@ -26,7 +26,6 @@ This project predicts whether a telecom customer is likely to leave the company 
 
 ```text
 Customer Churn Prediction System/
-├── app/
 ├── data/
 │   └── cleaned_customer_churn.csv
 ├── models/
