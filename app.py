@@ -1,3 +1,12 @@
+"""
+Customer Churn Prediction - Streamlit demo.
+
+Loads the XGBoost pipeline fitted in the notebooks and lets you score a
+single customer by hand. SHAP is used only to explain the customer that's
+currently on screen, nothing is recomputed for the whole dataset.
+
+Run locally with:  streamlit run app.py
+"""
 
 import streamlit as st
 import pandas as pd
@@ -7,26 +16,28 @@ from pathlib import Path
 import shap
 import matplotlib.pyplot as plt
 import numpy as np
-# -----------------------------
-# Page configuration
-# -----------------------------
+
+# wide layout, otherwise the 3-column input form gets really cramped
 st.set_page_config(
     page_title="Customer Churn Prediction",
     page_icon="📊",
     layout="wide"
 )
 
-# -----------------------------
-# Load saved model
-# -----------------------------
+# resolve the model relative to this file so it still loads when streamlit
+# is started from a different working directory
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models" / "xgboost_churn_pipeline.pkl"
 
+
+# cached so the pickled pipeline is only read from disk once per session
 @st.cache_resource
 def load_model():
     return joblib.load(MODEL_PATH)
 
 
+# only the classifier needs an explainer - the preprocessor stays inside
+# the pipeline and is applied separately below
 @st.cache_resource
 def load_explainer():
     loaded_model = load_model()
@@ -36,12 +47,11 @@ def load_explainer():
 try:
     model = load_model()
 except Exception as e:
+    # nothing else in the app can work without the model, so bail out here
     st.error(f"Could not load the model: {e}")
     st.stop()
 
-# -----------------------------
-# Application header
-# -----------------------------
+# page header
 st.title("📊 Customer Churn Prediction System")
 st.write(
     "Predict whether a telecom customer is likely to leave "
@@ -53,13 +63,14 @@ st.info(
     "'Predict Churn' to generate a prediction."
 )
 
-# -----------------------------
-# Customer input form
-# -----------------------------
+# every input goes inside the form so the prediction only runs on submit
+# instead of on each widget change
 with st.form("customer_form"):
 
     st.subheader("Customer Information")
 
+    # rough grouping: demographics on the left, service add-ons in the
+    # middle, billing info on the right
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -148,11 +159,10 @@ with st.form("customer_form"):
     )
 
 
-# -----------------------------
-# Prediction + SHAP Explanation
-# -----------------------------
+# --- score the customer and explain the result ---
 if submitted:
 
+    # single-row frame with the exact column names the pipeline was trained on
     customer = pd.DataFrame([{
         "gender": gender,
         "SeniorCitizen": senior_citizen,
@@ -175,6 +185,8 @@ if submitted:
         "TotalCharges": total_charges
     }])
 
+    # a brand new customer has no billing history yet - the training data
+    # encodes that as 0 rather than a missing value
     if tenure == 0:
         customer["TotalCharges"] = 0.0
 
@@ -216,8 +228,12 @@ if submitted:
         explainer = load_explainer()
         preprocessor = model.named_steps["preprocessor"]
 
+        # SHAP needs the encoded matrix, so run the same preprocessing the
+        # pipeline would apply internally
         transformed_customer = preprocessor.transform(customer)
 
+        # OneHotEncoder hands back a sparse matrix - densify it so the values
+        # line up with the feature names below
         if hasattr(transformed_customer, "toarray"):
             transformed_customer = transformed_customer.toarray()
 
@@ -239,12 +255,16 @@ if submitted:
             "Absolute Impact": np.abs(shap_scores)
         })
 
+        # strip the ColumnTransformer prefixes (num__ / cat__) so the labels
+        # read like the original column names
         importance_df["Feature"] = (
             importance_df["Feature"]
             .str.replace("num__", "", regex=False)
             .str.replace("cat__", "", regex=False)
         )
 
+        # keep only the 10 biggest movers, sorted ascending so the horizontal
+        # bars run bottom-to-top
         importance_df = importance_df.sort_values(
             "Absolute Impact",
             ascending=False
@@ -259,6 +279,7 @@ if submitted:
 
         fig, ax = plt.subplots(figsize=(10, 6))
 
+        # red bars push toward churn, blue ones pull away from it
         bar_colors = [
             "tomato" if value > 0 else "steelblue"
             for value in importance_df["SHAP Value"]
@@ -290,6 +311,8 @@ if submitted:
             show=False
         )
 
+        # waterfall draws onto the current matplotlib figure, so pick it up
+        # via gcf and hand it to streamlit
         waterfall_fig = plt.gcf()
         st.pyplot(waterfall_fig)
         plt.close(waterfall_fig)
@@ -307,6 +330,8 @@ if submitted:
         )
 
     except Exception as e:
+        # the churn score above is still valid, only the explanation failed -
+        # show the traceback so it's easy to debug
         st.error(
             "The prediction succeeded, but the SHAP explanation "
             "could not be generated."
