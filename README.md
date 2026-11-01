@@ -48,7 +48,7 @@ Customer Churn Prediction System/
 
 ### 1. Clone the repository
 ```bash
-git clone YOUR_GITHUB_REPOSITORY_URL: https://github.com/anurag-insights/Customer-Churn-Prediction-System-
+git clone https://github.com/anurag-insights/Customer-Churn-Prediction-System- 
 cd "Customer Churn Prediction System"
 ```
 
